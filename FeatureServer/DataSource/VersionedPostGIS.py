@@ -1,12 +1,14 @@
 __author__  = "MetaCarta"
 __copyright__ = "Copyright (c) 2006-2008 MetaCarta"
 __license__ = "Clear BSD" 
-__version__ = "$Id: VersionedPostGIS.py 496 2008-05-18 13:01:13Z crschmidt $"
+__version__ = "$Id: VersionedPostGIS.py 423 2008-01-15 23:46:53Z crschmidt $"
 
 from FeatureServer.DataSource import DataSource
-from vectorformats.Feature import Feature
-from FeatureServer.DataSource.PostGIS import PostGIS
-from vectorformats.Formats import WKT
+from FeatureServer.Feature import Feature
+from FeatureServer.PostGIS import PostGIS
+import psycopg
+import copy
+import re
 
 try:
     import cPickle
@@ -19,7 +21,7 @@ class VersionedPostGIS (PostGIS):
     """A proof of concept for versioned PostGIS-powered geo-database support.
        Allows 'open tagging', and creates transaction logs for looking through
        historical changes to the datastore."""
-    def __init__(self, name, srid = 4326, srid_out = 4326, fid = "id", geometry = "shape", order = "", **args):
+    def __init__(self, name, srid = 4326, fid = "id", geometry = "shape", order = "", **args):
         DataSource.__init__(self, name, **args)
         self.db         = None
         self.table      = "feature" 
@@ -27,7 +29,6 @@ class VersionedPostGIS (PostGIS):
         self.geom_col   = geometry
         self.order      = order
         self.srid       = srid
-        self.srid_out   = srid_out
         self.dsn        = args["dsn"]
     
     def begin (self):
@@ -46,9 +47,9 @@ class VersionedPostGIS (PostGIS):
         cursor.execute(str(sql))
         PostGIS.commit(self)
 
-    def insert (self, action):
+    def create (self, action):
         feature = action.feature
-        values = {'geom' : WKT.to_wkt(feature.geometry),
+        values = {'geom' : self.to_wkt(feature.geometry),
                   'uuid' : uuid.uuid1().hex,
                   'attrs': self._serializeattrs(feature.properties)}
         sql = """INSERT INTO %s (%s, uuid, attrs)
@@ -64,7 +65,7 @@ class VersionedPostGIS (PostGIS):
         sql = """UPDATE %s SET %s = SetSRID(%%(geom)s::geometry, %s),
                                attrs = %%(attrs)s WHERE %s = %(id)d""" % (
                 self.table, self.geom_col, self.srid, self.fid_col )
-        values = {'geom' : WKT.to_wkt(feature.geometry),
+        values = {'geom' : self.to_wkt(feature.geometry),
                   'id'   : action.id,
                   'attrs': self._serializeattrs(feature.properties)}
         cursor = self.db.cursor()
@@ -111,7 +112,7 @@ class VersionedPostGIS (PostGIS):
         features = []
         for row in result:
             props = dict(zip(columns, row))
-            geom  = WKT.from_wkt(props['fs_binary_geom_col'])
+            geom  = self.from_wkt(props['fs_binary_geom_col'])
             if props.has_key(self.geom_col): del props[self.geom_col]
             del props['fs_binary_geom_col']
             props.update(self._deserializeattrs(props['attrs']))
@@ -119,11 +120,10 @@ class VersionedPostGIS (PostGIS):
             fid = props[self.fid_col]
             del props[self.fid_col]
             for key, value in props.items():
-                if isinstance(value, str): 
-                    props[key] = unicode(value, "utf-8")
-            features.append( Feature( fid, geom, self.geom_col, self.srid_out, props ) ) 
+	    	if isinstance(value, str): props[key] = unicode(value, "utf-8")
+            features.append( Feature( fid, geom, props ) ) 
         return features
-    
+
     def _serializeattrs(self, properties):
         import sys
         print >>sys.stderr, properties

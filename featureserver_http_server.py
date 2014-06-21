@@ -3,33 +3,15 @@
 """A simple, standalone web server that serves FeatureServer requests."""
 
 __author__  = "MetaCarta"
-__version__ = "FeatureServer $Id: featureserver_http_server.py 564 2008-05-24 14:32:18Z crschmidt $"
+__version__ = "FeatureServer $Id: featureserver_http_server.py 404 2007-12-31 14:48:44Z crschmidt $"
 __license__ = "Clear BSD"
-__copyright__ = "2006-2008 MetaCarta"
+__copyright__ = "2006-2007 MetaCarta"
 
-import mimetypes, os
+
 from optparse import OptionParser
-from FeatureServer.Server import wsgi_app
+from FeatureServer.Server import wsgiApp
 
-local_path_location = None
-
-def local_app(environ, start_response):
-    if environ['PATH_INFO'].startswith("/static/"):
-        global local_path_location
-        path = environ['PATH_INFO'].replace("/static/","")
-        path.lstrip("/") 
-        mime =  mimetypes.guess_type(path)
-        try:
-            f = open(os.path.join(local_path_location, path))
-            start_response("200 OK", [("Content-Type",mime[0])])
-            return [f.read()]
-        except Exception, E:
-            start_response("404 Not Found", [("Content-Type","text/plain")])
-            return ["Not found: %s" % E]
-            
-    return wsgi_app(environ, start_response)
-
-def run(port=8080, thread=False, local_path=""):
+def run(port=8080, thread=False):
     from wsgiref import simple_server
     if thread:
         from SocketServer import ThreadingMixIn
@@ -40,12 +22,7 @@ def run(port=8080, thread=False, local_path=""):
             pass
 
     httpd = myServer(('',port), simple_server.WSGIRequestHandler,)
-    if local_path:
-        global local_path_location
-        local_path_location = local_path
-        httpd.set_app(local_app)
-    else:
-        httpd.set_app(wsgi_app)
+    httpd.set_app(wsgiApp)
     
     try:
         print "Listening on port %s" % port
@@ -61,10 +38,9 @@ if __name__ == '__main__':
         action='store', 
         type="int", 
         default=8080)
-    parser.add_option("-t", help="enable threading in HTTP Server.", dest="thread", action="store_true", default=False)   
-    parser.add_option("-l", help="serve files from local disk", dest="local_path")
+    parser.add_option("-t", help="enable threading in HTTP Server.", dest="thread", action="store_true", default=False)    
 
     (options, args) = parser.parse_args()
-    run(options.port, options.thread, options.local_path)
+    run(options.port, options.thread)
 
 

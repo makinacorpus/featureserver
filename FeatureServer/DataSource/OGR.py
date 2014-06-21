@@ -1,11 +1,11 @@
 __author__  = "MetaCarta"
 __copyright__ = "Copyright (c) 2006-2008 MetaCarta"
 __license__ = "Clear BSD" 
-__version__ = "$Id: OGR.py 617 2009-10-06 18:10:49Z jlivni $"
+__version__ = "$Id: OGR.py 423 2008-01-15 23:46:53Z crschmidt $"
 
 from FeatureServer.DataSource import DataSource
 from FeatureServer.DataSource import Lock
-from vectorformats.Feature import Feature
+from FeatureServer.Feature import Feature
 
 try:
     from osgeo import ogr
@@ -20,16 +20,16 @@ class OGR (DataSource):
        OGR's underlying datasource.""" 
     freeze_type = {
         ogr.wkbPoint            : "Point",
-        ogr.wkbLineString       : "LineString",
+        ogr.wkbLineString       : "Line",
         ogr.wkbPolygon          : "Polygon",
         ogr.wkbMultiPoint       : "Point",
-        ogr.wkbMultiLineString  : "LineString",
+        ogr.wkbMultiLineString  : "Line",
         ogr.wkbMultiPolygon     : "Polygon"
     }
     # thaw_type = dict(map(lambda (x,y): (y,x), freeze_type.items()))
     thaw_type = {
         "Point"     : ogr.wkbPoint,
-        "LineString": ogr.wkbLineString,
+        "Line"      : ogr.wkbLineString,
         "Polygon"   : ogr.wkbPolygon
     }
     error_msgs = [
@@ -44,7 +44,7 @@ class OGR (DataSource):
     ]
 
     def __init__(self, name, writable = 0, lockfile = 0, 
-                 dsn = None, layer = None, attribute_cols = '', **args):
+                             dsn = None, layer = None, **args):
         DataSource.__init__(self, name, **args)
         if int(writable) and lockfile: 
             self.lock = Lock(lockfile)
@@ -58,12 +58,8 @@ class OGR (DataSource):
         self.defn   = self.layer.GetLayerDefn()
         self.fields = [self.defn.GetFieldDefn(i)
                         for i in range(self.defn.GetFieldCount())]
-        if attribute_cols:
-            self.attribute_cols = [x.lower() for x in attribute_cols.split(',')]
-        else:
-            self.attribute_cols = None
     
-    def insert (self, action):
+    def create (self, action):
         feature = self.thaw_feature(action.feature)
         err = self.layer.CreateFeature(feature)
         if err:
@@ -115,9 +111,7 @@ class OGR (DataSource):
             self.layer.SetAttributeFilter(query)
 
             feature = True
-            count = action.maxfeatures
-            if not count:
-                count = 1000
+            count   = action.maxfeatures
             counter = 0
             self.layer.ResetReading()
             while feature:
@@ -155,9 +149,7 @@ class OGR (DataSource):
         ogrgeom = ogr.Geometry( type = geomtype )
 
         coordinates = geom["coordinates"]
-        if geomtype == ogr.wkbPoint:
-            thaw_points( ogrgeom, [coordinates] )
-        elif geomtype == ogr.wkbLineString:
+        if geomtype in (ogr.wkbPoint, ogr.wkbLineString):
             thaw_points( ogrgeom, coordinates )
         elif geomtype == ogr.wkbPolygon:
             for coords in coordinates:
@@ -197,13 +189,9 @@ class OGR (DataSource):
                 % geomtype);
                 
         frozen_type = self.freeze_type[geomtype]
-        if frozen_type == "Point":
-            points = freeze_points(geom)
-            if len(points) == 1:
-                coords = points[0]
-        elif frozen_type == "LineString":
+        if frozen_type in ("Point", "Line"):
             coords = freeze_points(geom)
-        elif frozen_type == "Polygon":
+        elif frozen_type in "Polygon":
             coords = []
             for i in range(geom.GetGeometryCount()):
                 coords.append( freeze_points( geom.GetGeometryRef(i) ) )
@@ -221,12 +209,9 @@ class OGR (DataSource):
             feat.geometry = OGR.freeze_geometry(geom)
 
             for n, defn in enumerate(self.fields):
-                key = defn.GetName()
-                if self.attribute_cols and not key.lower() in self.attribute_cols:
-                    continue
                 value = ogrfeat.GetField(n)
                 if isinstance(value, str): value = unicode(value, "utf-8")
-                feat.properties[key] = value 
+                feat.properties[defn.GetName()] = value 
 
             result.append(feat)
             ogrfeat.Destroy() 

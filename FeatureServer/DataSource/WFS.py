@@ -1,11 +1,11 @@
 __author__  = "MetaCarta"
 __copyright__ = "Copyright (c) 2006-2008 MetaCarta"
 __license__ = "Clear BSD" 
-__version__ = "$Id: WFS.py 467 2008-05-18 06:02:16Z crschmidt $"
+__version__ = "$Id: WFS.py 423 2008-01-15 23:46:53Z crschmidt $"
 
 from FeatureServer.DataSource import DataSource
 from FeatureServer.DataSource.OGR import OGR
-from vectorformats.Feature import Feature
+from FeatureServer.Feature import Feature
 import urllib
 import tempfile
 import os

@@ -5,7 +5,7 @@ __version__ = "$Id: DBM.py 444 2008-03-19 01:35:35Z brentp $"
 
 from FeatureServer.DataSource import DataSource
 from FeatureServer.DataSource import Lock
-from FeatureServer.Service.Action import Action
+from FeatureServer.Service import Action 
 import anydbm
 import UserDict
 
@@ -40,15 +40,15 @@ class DBM (DataSource):
     def rollback (self):
         if self.lock: self.lock.unlock()
 
-    def insert (self, action):
+    def create (self, action):
         if self.unique:
-            action.id = self.insertUnique(action.feature)
+            action.id = self.createUnique(action.feature)
         else:
             thunk = self.freeze_feature(action.feature)
             action.id = self.append(thunk)
         return self.select(action)
     
-    def insertUnique(self, feature):
+    def createUnique(self, feature):
         if not feature.properties.has_key(self.unique):
            raise Exception("Unique key (%s) missing from feature." % self.unique)
         action = Action()

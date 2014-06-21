@@ -1,13 +1,12 @@
 __author__  = "MetaCarta"
 __copyright__ = "Copyright (c) 2006-2008 MetaCarta"
 __license__ = "Clear BSD" 
-__version__ = "$Id: SQLite.py 606 2009-04-24 16:25:41Z brentp $"
+__version__ = "$Id: SQLite.py 449 2008-03-29 01:34:04Z brentp $"
 
 import re
 import copy
 from FeatureServer.DataSource import DataSource
-from vectorformats.Feature import Feature
-from vectorformats.Formats import WKT
+from FeatureServer.Feature import Feature
 import sys
 
 try:
@@ -20,21 +19,13 @@ class SQLite (DataSource):
        built in sqlite in Python2.5+, or with pysqlite2."""
     wkt_linestring_match = re.compile(r'\(([^()]+)\)')
 
-
-    query_action_types = ['lt', 'gt', 'like', 'gte', 'lte']
-
-    query_action_sql = {'lt': '<', 'gt': '>' , 'like':'like'
-                        , 'gte': '>=', 'lte': '<='}
-
-
-    def __init__(self, name, srid = 4326, srid_out = 4326, order=None, writable = True, **args):
+    def __init__(self, name, srid = 4326, order=None, writable = True, **args):
         DataSource.__init__(self, name, **args)
         self.table      = args.get("layer") or name
         self.fid_col    = 'feature_id'
         self.geom_col   = 'wkt_geometry'
         self.order      = order
         self.srid       = srid # not used now...
-        self.srid_out   = srid_out # not used now...
         self.db         = None
         self.dsn        = args.get("dsn") or args.get("file")
         self.writable   = writable
@@ -48,7 +39,6 @@ class SQLite (DataSource):
         if not self.table in self.tables():
             c = self.db.cursor()
             c.executescript(self.schema())
-            self.db.commit()
 
     def tables(self):
         c = self.db.cursor()
@@ -70,10 +60,12 @@ CREATE TABLE '%s' (
 CREATE TABLE '%s_attrs' (
     id     INTEGER PRIMARY KEY,
     feature_id  INTEGER,
+    title  VARCHAR(256),
     key    VARCHAR(256),
     value TEXT
 );    
 CREATE INDEX %s_xy_idx ON %s (xmin, xmax, ymin, ymax);
+CREATE INDEX %s_attrs_title_idx on %s_attrs (title);
 CREATE INDEX %s_attrs_feature_id on %s_attrs (feature_id);
 CREATE INDEX %s_attrs_%s_key on %s_attrs (key);
 
@@ -95,7 +87,7 @@ BEGIN
                 WHERE feature_id = NEW.feature_id;
 END; 
 
-""" % tuple([self.table, self.geom_col] + list((self.table,) * 15))
+""" % tuple([self.table, self.geom_col] + list((self.table,) * 17))
 
     def commit (self):
         if self.writable:
@@ -125,29 +117,65 @@ END;
             if pair[0] != self.geom_col:
                 predicates.append(" %s = %s" % pair)
             else:
-                predicates.append(" %s = %s " % (self.geom_col, WKT.to_wkt(feature.geometry)))
+                predicates.append(" %s = %s " % (self.geom_col, self.to_wkt(feature.geometry)))     
         return predicates
 
     def feature_values (self, feature):
         return copy.deepcopy(feature.properties)
 
-    def insert (self, action):
+    def to_wkt (self, geom):
+        def coords_to_wkt (coords):
+            return ",".join(["%f %f" % tuple(c) for c in coords])
+        coords = geom["coordinates"]
+        if geom["type"] == "Point":
+            return "POINT(%s)" % coords_to_wkt(coords)
+        elif geom["type"] == "Line":
+            return "LINESTRING(%s)" % coords_to_wkt(coords)
+        elif geom["type"] == "Polygon":
+            rings = ["(" + coords_to_wkt(ring) + ")" for ring in coords]
+            rings = ",".join(rings)
+            return "POLYGON(%s)" % rings
+        else:
+            raise Exception("Couldn't create WKT from geometry of type %s (%s). Only Point, Line, Polygon are supported." % (geom['type'], geom)) 
+
+    def from_wkt (self, geom):
+        coords = []
+        for line in self.wkt_linestring_match.findall(geom):
+            ring = []
+            for pair in line.split(","):         
+                ring.append(map(float, pair.split(" ")))
+            coords.append(ring)
+        if geom.startswith("POINT"):
+            geomtype = "Point"
+            coords = coords[0]
+        elif geom.startswith("LINESTRING"):
+            geomtype = "Line"
+            coords = coords[0]
+        elif geom.startswith("POLYGON"):
+            geomtype = "Polygon"
+        else:
+            geomtype = geom[:geom.index["("]]
+            raise Error("Unsupported geometry type %s" % geomtype)
+        return {"type": geomtype, "coordinates": coords}
+
+    def create (self, action):
         feature = action.feature
         bbox = feature.get_bbox()
 
         columns = ", ".join([self.geom_col,'xmin,ymin,xmax,ymax'])
-        values = [WKT.to_wkt(feature.geometry)] + list(bbox) 
+        values = [self.to_wkt(feature.geometry)] + list(bbox) 
         sql = "INSERT INTO \"%s\" (%s) VALUES (?,?,?,?,?)" % ( self.table, columns)
         cursor = self.db.cursor()
         res = cursor.execute(str(sql), values)
         action.id = res.lastrowid
-        #self.db.commit()
 
-        insert_tuples = [(res.lastrowid, k, v) for k,v in feature.properties.items()]
+        insert_tuples = [(res.lastrowid, k, v) for k,v in feature.properties.items() if k != 'title']
+        if 'title' in feature.properties:
+            insert_tuples.append((res.lastrowid, 'title', feature.properties['title']))
         sql = "INSERT INTO \"%s_attrs\" (feature_id, key, value) VALUES (?, ?, ?)" % (self.table,) 
         cursor.executemany(sql,insert_tuples)
 
-        #self.db.commit()
+        self.db.commit()
         return self.select(action)
         
 
@@ -170,9 +198,9 @@ END;
         # should check if changed before doing this ...
         geom_sql = "UPDATE %s SET %s = ?, xmin = ?, ymin = ?, xmax = ?, ymax = ? WHERE %s = %d" \
                            % (self.table, self.geom_col, self.fid_col, action.id)
-        cursor.execute(geom_sql,  [WKT.to_wkt(feature.geometry)] + list(bbox))
+        cursor.execute(geom_sql,  [self.to_wkt(feature.geometry)] + list(bbox))
 
-        #self.db.commit()
+        self.db.commit()
         return self.select(action)
         
     def delete (self, action):
@@ -185,7 +213,7 @@ END;
         sql = "DELETE FROM \"%s_attrs\" WHERE %s = :%s" % (
                     self.table, self.fid_col, self.fid_col )
         cursor.execute(str(sql), {self.fid_col: action.id})
-        #self.db.commit()
+        self.db.commit()
         return []
 
 
@@ -204,24 +232,13 @@ END;
             match = Feature(props = action.attributes)
             filters = match.properties.items()
             
-            sql = "SELECT DISTINCT(t.feature_id) as feature_id, t.%s as %s,\
-            t.%s as %s FROM \"%s\" t LEFT JOIN \"%s_attrs\" a ON a.feature_id =\
-            t.feature_id " % ( self.geom_col, self.geom_col, self.fid_col, self.fid_col,  self.table, self.table )
+            sql = "SELECT DISTINCT(t.feature_id), t.%s, t.%s FROM \"%s\" t, \"%s_attrs\" a WHERE a.feature_id = t.feature_id " % ( self.geom_col, self.fid_col, self.table, self.table )
             select_dict = {}
             if filters:
-                sql += "WHERE 1 "
-                for ii, (key, value) in enumerate(filters):
-                    if isinstance(value, dict):
-
-                        select_dict['key%i' % ii] = value['column']
-                        select_dict['value%i' % ii] = value['value']
-                        sql += (" AND a.key = :key%i AND a.value " + self.query_action_sql[value['type']] + " :value%i") % (ii, ii)
-
-
-                    else:
-                        select_dict['key%i' % ii] = key
-                        select_dict['value%i' % ii] = value
-                        sql += " AND a.key = :key%i AND a.value = :value%i" % (ii, ii)
+                for ii, filter in enumerate(filters):
+                    select_dict['key%i' % ii] = filter[0]
+                    select_dict['value%i' % ii] = filter[1]
+                    sql += " AND a.key = :key%i AND a.value = :value%i" % (ii, ii)
 
             bbox = '' 
             if action.bbox:
@@ -238,18 +255,20 @@ END;
 
             if action.startfeature:
                 sql += " OFFSET %d" % action.startfeature
+
+
             cursor.execute(str(sql), select_dict)
             results = cursor.fetchall()
 
         for row in results:
             attrs = cursor.execute(sql_attrs, dict(feature_id=row['feature_id']) ).fetchall()
+            if attrs == []: continue
             d = {}
-            #if attrs == []: continue
             for attr in attrs:
                 d[attr[0]] = attr[1]
-            geom  = WKT.from_wkt(row[self.geom_col])
+            geom  = self.from_wkt(row[self.geom_col])
             id = row[self.fid_col]
 
             if (geom):
-                features.append( Feature( id, geom, self.geom_col, self.srid_out, d ) ) 
+                features.append( Feature( id, geom, d ) ) 
         return features

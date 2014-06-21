@@ -1,61 +1,59 @@
 __author__  = "MetaCarta"
 __copyright__ = "Copyright (c) 2006-2008 MetaCarta"
 __license__ = "Clear BSD" 
-__version__ = "$Id: GeoJSON.py 483 2008-05-18 10:38:32Z crschmidt $"
+__version__ = "$Id: GeoJSON.py 412 2008-01-01 08:15:59Z crschmidt $"
 
-from FeatureServer.Service.Request import Request
-from FeatureServer.Service.Action import Action
-from vectorformats.Feature import Feature
-import vectorformats.Formats.GeoJSON 
+from FeatureServer.Service import Request, Action 
+from FeatureServer.Service.JSON import JSON
+from FeatureServer.Feature import Feature
 
 try:
     import simplejson
 except Exception, E:
-    raise Exception("simplejson is required for using the JSON service. (Import failed: %s)" % E)
+    raise Exception("simplejson is required for using the GeoJSON service. (Import failed: %s)" % E)
 
-class GeoJSON(Request):
-    def __init__(self, service):
-        Request.__init__(self, service)
-        self.callback = None
-    
-    def encode_metadata(self, action):
-        layers = self.service.datasources
-        metadata = []
-        for key in layers.keys():
-            metadata.append(
-              { 
-                'name': key,
-                'url': "%s/%s" % (self.host, key)
-              }
-            )
-            
-        result_data = {'Layers': metadata}
+class GeoJSON(JSON):
+    def createFeature(self, feature_dict, id = None):
+        feature = Feature(id)
+        if feature_dict.has_key('geometry'):
+            feature.geometry = feature_dict['geometry']
+            if feature.geometry['type'] == "Point":
+                feature.geometry['coordinates'] = [feature.geometry['coordinates']] 
+            if feature.geometry['type'] == "LineString":
+                feature.geometry['type'] = "Line"
+        if feature_dict.has_key('properties'):
+            feature.properties = feature_dict['properties']
+        return feature 
         
-        result = simplejson.dumps(result_data) 
-        if self.callback:
-            result = "%s(%s);" % (self.callback, result)
-        
-        return ("text/plain", result, None)
-    
-    def parse(self, params, path_info, host, post_data, request_method, format_obj=None):
-        if 'callback' in params:
-            self.callback = params['callback']
-        g = vectorformats.Formats.GeoJSON.GeoJSON()
-        Request.parse(self, params, path_info, host, post_data, request_method, format_obj=g)     
     
     def encode(self, result):
-        g = vectorformats.Formats.GeoJSON.GeoJSON()
-        result = g.encode(result)
+        results = []
+        result_data = None
+        for action in result:
+            for i in action:
+                data = self.encode_feature(i)
+                for key,value in data['properties'].items():
+                    if value and isinstance(value, str): 
+                        data['properties'][key] = unicode(value,"utf-8")
+                results.append(data)
         
-        if self.datasources[0]:
-            datasource = self.service.datasources[self.datasources[0]]
+        result_data = {'type':'FeatureCollection','features': results,
+                       'crs':{  'type':'none',
+                                'properties':{'info':'No CRS information has been provided with this data.'} 
+                             } 
+                      }
         
-        if self.callback and datasource and hasattr(datasource, 'gaping_security_hole'):
-            return ("text/plain", "%s(%s);" % (self.callback, result), None, 'utf-8')
+        result = simplejson.dumps(result_data) 
+        
+        if self.callback:
+            return ("text/plain", "%s(%s);" % (self.callback, result))
         else:    
-            return ("text/plain", result, None, 'utf-8')
-
-    def encode_exception_report(self, exceptionReport):
-        geojson = vectorformats.Formats.GeoJSON.GeoJSON()
-        return ("text/plain", geojson.encode_exception_report(exceptionReport), None, 'utf-8')
-
+            return ("text/plain", result)
+    
+    def encode_feature(self, feature):
+        feat = {"id": feature.id, "geometry": feature.geometry, "properties": feature.properties, 'type':"Feature"}
+        if feat['geometry']['type'] == "Point":
+            feat['geometry']['coordinates'] = feat['geometry']['coordinates'][0]
+        if feat['geometry']['type'] == "Line":
+            feat['geometry']['type'] = "LineString"
+        return feat    
