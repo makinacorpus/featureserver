@@ -72,7 +72,7 @@ class PostGIS (DataSource):
             if pair[0] != self.geom_col:
                 predicates.append("%s = %s" % pair)
         if feature.geometry.has_key("coordinates"):
-            predicates.append(" %s = SetSRID('%s'::geometry, %s) " % (self.geom_col, self.to_wkt(feature.geometry), self.srid))     
+            predicates.append(" %s = ST_SetSRID('%s'::geometry, %s) " % (self.geom_col, self.to_wkt(feature.geometry), self.srid))     
         return predicates
 
     def feature_values (self, feature):
@@ -135,7 +135,7 @@ class PostGIS (DataSource):
     def create (self, action):
         feature = action.feature
         columns = ", ".join(self.column_names(feature)+[self.geom_col])
-        values = ", ".join(self.value_formats(feature)+["SetSRID('%s'::geometry, %s) " % (self.to_wkt(feature.geometry), self.srid)])
+        values = ", ".join(self.value_formats(feature)+["ST_SetSRID('%s'::geometry, %s) " % (self.to_wkt(feature.geometry), self.srid)])
         sql = "INSERT INTO \"%s\" (%s) VALUES (%s)" % (
                                         self.table, columns, values)
         cursor = self.db.cursor()
@@ -186,7 +186,7 @@ class PostGIS (DataSource):
                 filters = self.feature_predicates(match)
                 attrs = action.attributes
             if action.bbox:
-                filters.append( "%s && SetSRID('BOX3D(%f %f,%f %f)'::box3d, %s) and intersects(%s, SetSRID('BOX3D(%f %f,%f %f)'::box3d, %s))" % (
+                filters.append( "%s && ST_SetSRID('BOX3D(%f %f,%f %f)'::box3d, %s) and st_intersects(%s, ST_SetSRID('BOX3D(%f %f,%f %f)'::box3d, %s))" % (
                                         (self.geom_col,) + tuple(action.bbox) + (self.srid,) + (self.geom_col,) + (tuple(action.bbox) + (self.srid,))))
             sql = "SELECT AsText(%s) as fs_text_geom, \"%s\", %s FROM \"%s\"" % (self.geom_col, self.fid_col, self.attribute_cols, self.table)
             if filters:

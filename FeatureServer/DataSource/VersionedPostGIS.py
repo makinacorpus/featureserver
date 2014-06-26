@@ -53,7 +53,7 @@ class VersionedPostGIS (PostGIS):
                   'uuid' : uuid.uuid1().hex,
                   'attrs': self._serializeattrs(feature.properties)}
         sql = """INSERT INTO %s (%s, uuid, attrs)
-                    VALUES (SetSRID(%%(geom)s::geometry, %s),
+                    VALUES (ST_SetSRID(%%(geom)s::geometry, %s),
                                 %%(uuid)s, %%(attrs)s)""" % (
                                     self.table, self.geom_col, self.srid)
         cursor = self.db.cursor()
@@ -62,7 +62,7 @@ class VersionedPostGIS (PostGIS):
 
     def update (self, action):
         feature = action.feature
-        sql = """UPDATE %s SET %s = SetSRID(%%(geom)s::geometry, %s),
+        sql = """UPDATE %s SET %s = ST_SetSRID(%%(geom)s::geometry, %s),
                                attrs = %%(attrs)s WHERE %s = %(id)d""" % (
                 self.table, self.geom_col, self.srid, self.fid_col )
         values = {'geom' : self.to_wkt(feature.geometry),
@@ -84,7 +84,7 @@ class VersionedPostGIS (PostGIS):
             filters = []
             attrs   = {}
             if action.bbox:
-                filters.append( "%s && SetSRID('BOX3D(%f %f,%f %f)'::box3d, %s) and intersects(%s, SetSRID('BOX3D(%f %f,%f %f)'::box3d, %s))" % (
+                filters.append( "%s && ST_SetSRID('BOX3D(%f %f,%f %f)'::box3d, %s) and st_intersects(%s, ST_SetSRID('BOX3D(%f %f,%f %f)'::box3d, %s))" % (
                                         (self.geom_col,) + tuple(action.bbox) + (self.srid,) + (self.geom_col,) + (tuple(action.bbox) + (self.srid,))))
             
             if action.attributes:
