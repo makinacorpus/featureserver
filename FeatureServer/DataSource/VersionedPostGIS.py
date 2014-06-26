@@ -40,7 +40,7 @@ class VersionedPostGIS (PostGIS):
         cursor.execute(str(sql))
         
     def commit (self):
-        sql = """update txn set bbox = envelope(collect(shape)) from history
+        sql = """update txn set bbox = st_envelope(st_collect(shape)) from history
                     where history.txn_id = txn.uuid and txn.uuid = '%s'""" \
                     % self.txn_uuid
         cursor = self.db.cursor()
@@ -76,7 +76,7 @@ class VersionedPostGIS (PostGIS):
         cursor = self.db.cursor()
 
         if action.id is not None:
-            sql = "SELECT AsText(%s) as fs_binary_geom_col, * FROM %s WHERE %s = %%(%s)d" % (
+            sql = "SELECT ST_ST_AsText(%s) as fs_binary_geom_col, * FROM %s WHERE %s = %%(%s)d" % (
                     self.geom_col, self.table, self.fid_col, self.fid_col )
             cursor.execute(str(sql), {self.fid_col: action.id})
             result = [cursor.fetchone()]
@@ -92,7 +92,7 @@ class VersionedPostGIS (PostGIS):
                 filters = self.feature_predicates(match)
                 attrs = action.attributes
 
-            sql = "SELECT AsText(%s) as fs_binary_geom_col, uuid, id, attrs FROM %s" % (self.geom_col, self.table)
+            sql = "SELECT ST_ST_AsText(%s) as fs_binary_geom_col, uuid, id, attrs FROM %s" % (self.geom_col, self.table)
             #if filters:
             #    sql += " WHERE " + " AND ".join(filters)
             

@@ -170,7 +170,7 @@ class PostGIS (DataSource):
         cursor = self.db.cursor()
 
         if action.id is not None:
-            sql = "SELECT AsText(%s) as fs_text_geom, * FROM \"%s\" WHERE %s = %%(%s)d" % (
+            sql = "SELECT ST_AsText(%s) as fs_text_geom, * FROM \"%s\" WHERE %s = %%(%s)d" % (
                     self.geom_col, self.table, self.fid_col, self.fid_col )
             try:
                 cursor.execute(str(sql)% {self.fid_col: action.id})
@@ -188,7 +188,7 @@ class PostGIS (DataSource):
             if action.bbox:
                 filters.append( "%s && ST_SetSRID('BOX3D(%f %f,%f %f)'::box3d, %s) and st_intersects(%s, ST_SetSRID('BOX3D(%f %f,%f %f)'::box3d, %s))" % (
                                         (self.geom_col,) + tuple(action.bbox) + (self.srid,) + (self.geom_col,) + (tuple(action.bbox) + (self.srid,))))
-            sql = "SELECT AsText(%s) as fs_text_geom, \"%s\", %s FROM \"%s\"" % (self.geom_col, self.fid_col, self.attribute_cols, self.table)
+            sql = "SELECT ST_AsText(%s) as fs_text_geom, \"%s\", %s FROM \"%s\"" % (self.geom_col, self.fid_col, self.attribute_cols, self.table)
             if filters:
                 sql += " WHERE " + " AND ".join(filters)
             if self.order:
